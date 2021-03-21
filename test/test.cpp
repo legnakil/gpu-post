@@ -1,8 +1,11 @@
+
+#include <time.h>
 #include "test.hpp"
 #ifdef WIN32
 #include <conio.h>
 #endif
 #include "test-vectors.h"
+
 
 void do_unit_tests();
 void do_integration_tests();
@@ -12,6 +15,95 @@ int test_of_concurrency();
 int test_of_cancelation();
 
 #define	MAX_CPU_LABELS_COUNT	(9 * 128 * 1024)
+
+const char * getProviderClassString(ComputeApiClass aClass)
+{
+	switch (aClass) {
+	case COMPUTE_API_CLASS_UNSPECIFIED:
+		return "UNSPECIFIED";
+	case COMPUTE_API_CLASS_CPU:
+		return "CPU";
+	case COMPUTE_API_CLASS_CUDA:
+		return "CUDA";
+	case COMPUTE_API_CLASS_VULKAN:
+		return "VULKAN";
+	default:
+		return "INVALID";
+	}
+}
+
+// A long run runs a number of gpu-post iterations of computation using a specifc provider
+void do_long_run(int providerId, int labelSize, int labelsCount, int iterations) {
+
+	int providersCount = spacemesh_api_get_providers(NULL, 0);
+
+	printf("Using provider id: %d. Label size: %d, Labels per iteration: %d. Iterations: %d\n", providerId, labelSize, labelsCount, iterations);
+
+	if (providersCount == 0) {
+		 // error - no providers
+		 	printf("No supported providers...\n");
+			return;
+	}
+
+	PostComputeProvider *providers = (PostComputeProvider *)malloc(providersCount * sizeof(PostComputeProvider));
+
+	if (spacemesh_api_get_providers(providers, providersCount) != providersCount) {
+		 	printf("Failed to enum providers.\n");
+			return;
+	}
+
+	if (providerId >= providersCount) {
+		printf("Out of bounds provider id\n");
+		return;
+	}
+
+	PostComputeProvider provider = providers[providerId];
+	printf("%3d: [%s] %s\n", providerId, getProviderClassString(provider.compute_api), provider.model);
+	if (provider.compute_api == COMPUTE_API_CLASS_CPU) {
+			printf("CPU Provider.\n");
+	}
+
+	uint8_t *out = (uint8_t *)malloc((uint64_t(labelsCount) * uint64_t(labelSize) + 7ull) / 8ull);
+	if (out == NULL) {
+		printf("Buffer allocation error\n");
+		return;
+	}
+
+	uint8_t id[32];
+	uint8_t salt[32];
+
+	srand(time(nullptr));
+	for (int i = 0; i < sizeof(id); i++) {
+		id[i] = rand();
+	}
+	for (int i = 0; i < sizeof(salt); i++) {
+		salt[i] = rand();
+	}
+
+	time_t t_start;
+	time_t t_end;
+
+	uint64_t hashes_computed;
+	uint64_t hashes_per_sec;
+
+	//gettimeofday(&tv_start, NULL);
+
+	time(&t_start);
+	for (int i = 0; i < iterations; i++) {
+		printf("Iteration %d / %d\n", i+1, iterations);
+		scryptPositions(provider.id, id, 0, labelsCount - 1, labelSize, salt, 0, out, 512, 1, 1, &hashes_computed, &hashes_per_sec);
+		printf("%s: %u hashes, %u h/s\n", provider.model, (uint32_t)hashes_computed, (uint32_t)hashes_per_sec);
+  }
+	time(&t_end);
+
+	//gettimeofday(&tv_end, NULL);
+
+
+	printf("Total iterations running time: %lu seconds.\n", (unsigned long) t_end - t_start);
+
+	free(out);
+	free(providers);
+}
 
 void do_benchmark(int aLabelSize, int aLabelsCount)
 {
@@ -141,21 +233,8 @@ void do_test(int aLabelSize, int aLabelsCount, int aReferenceProvider, bool aPri
 	}
 }
 
-const char * getProviderClassString(ComputeApiClass aClass)
-{
-	switch (aClass) {
-	case COMPUTE_API_CLASS_UNSPECIFIED:
-		return "UNSPECIFIED";
-	case COMPUTE_API_CLASS_CPU:
-		return "CPU";
-	case COMPUTE_API_CLASS_CUDA:
-		return "CUDA";
-	case COMPUTE_API_CLASS_VULKAN:
-		return "VULKAN";
-	default:
-		return "INVALID";
-	}
-}
+
+
 
 void do_providers_list()
 {
@@ -269,7 +348,7 @@ void create_test_vector()
 					printf("Test vector: %s: %u hashes, %u h/s\n", providers[i].model, (uint32_t)hashes_computed, (uint32_t)hashes_per_sec);
 
 					const uint8_t *src = vector;
-					
+
 					for (uint32_t length = sizeof(vector); length > 0; length -= std::min<uint32_t>(32, length)) {
 						for (int i = 0; i < 32; i++) {
 							printf("0x%02x, ", *src++);
@@ -291,19 +370,37 @@ void create_test_vector()
 int main(int argc, char **argv)
 {
 	bool runBenchmark = false;
+	bool longrun = false;
 	bool runTest = false;
 	bool createTestVector = false;
 	bool checkTestVector = false;
 	int labelSize = 8;
+	int iterations = 1;
+	int providerId = 0;
 	int labelsCount = MAX_CPU_LABELS_COUNT;
 	int referenceProvider = -1;
 	bool printDataCompare = false;
 
 	if (argc == 1) {
 		printf("Usage:\n");
+		printf("--list               or -l	print available providers\n");
+		printf("--benchmark          or -b	do benchmark\n");
+		printf("--long-run           or -r  Start a long run with provider id\n");
+		printf("--test               or -t	do test\n");
+		printf("--test-vector-check		do CPU test and compare with test-vector\n");
+		printf("--label-size         or -s	<1-256>	set label size [1-256]\n");
+		printf("--labels-count       or -n	<1-32M>	set labels count [up to 32M]\n");
+		printf("--iters              or -i	<1-*>	set long-run number of iterations\n");
+		printf("--provider-id        or -r	<id>	set long-run provider id\n");
+		printf("--reference-provider or -r	<id>	the result of this provider will be used as a reference [default - CPU]\n");
+		printf("--print              or -p		print detailed data comparison report for incorrect results\n");
 		return 0;
 	}
+
 	for (int i = 1; i < argc; i++) {
+		if (0 == strcmp(argv[i], "--long-run") || 0 == strcmp(argv[i], "-l")) {
+			longrun = true;
+		}
 		if (0 == strcmp(argv[i], "--benchmark") || 0 == strcmp(argv[i], "-b")) {
 			runBenchmark = true;
 		}
@@ -364,6 +461,18 @@ int main(int argc, char **argv)
 				}
 			}
 		}
+		else if (0 == strcmp(argv[i], "--iters") || 0 == strcmp(argv[i], "-i")) {
+			i++;
+			if (i < argc) {
+				iterations = atoi(argv[i]);
+			}
+		}
+		else if (0 == strcmp(argv[i], "--provider-id") || 0 == strcmp(argv[i], "-r")) {
+			i++;
+			if (i < argc) {
+				providerId = atoi(argv[i]);
+			}
+		}
 		else if (0 == strcmp(argv[i], "--reference-provider") || 0 == strcmp(argv[i], "-r")) {
 			i++;
 			if (i < argc) {
@@ -391,6 +500,11 @@ int main(int argc, char **argv)
 		do_test(labelSize, labelsCount, referenceProvider, printDataCompare);
 		return 0;
 	}
+	if (longrun) {
+		do_long_run(providerId, labelSize, labelsCount, iterations);
+		return 0;
+	}
+
 #ifdef WIN32
 	printf("\nPress any key to continue...\n");
 	_getch();
