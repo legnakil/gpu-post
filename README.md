@@ -282,6 +282,8 @@ gpu-setup-test -b -n 2000000
 | 06/29/2021    | avive         | v0.1.21      | GeForce RTX 3080 | Ubuntu 20.04 | Nvidia 460.80 | 4.08
 | 06/30/2021    | shanyaa       | v0.1.21      | GeForce RTX 3070 @ 1.9 Ghz core, 6.8 Ghz mem | Windows 10   | Nvidia 466.63 | 2.7
 | 06/30/2021    | shanyaa       | v0.1.21      | GeForce RTX 3070 @ 2 Ghz core, 8.08 Ghz mem | Windows 10   | Nvidia 466.63 | 3.43
+| 06/30/2021    | legnakil      | v0.1.21      | Inno3D RTX 3060 (GA106) Core @ 1792 MHz, Memory @ 1875 MHz | Windows 10   | Nvidia 471.11 | 1.28
+| 06/30/2021    | legnakil      | v0.1.21      | Inno3D RTX 3060 (GA106) Core @ 1792 MHz, Memory @ 2237.7 MHz (Memory overclock + 1000 on AfterBurner) | Windows 10   | Nvidia 471.11 | 1.35
 
 ---
 
